@@ -1,101 +1,131 @@
-.PHONY: clean clean-build clean-pyc clean-test coverage dist docs help install lint lint/flake8
-        {%- if cookiecutter.use_black == 'y' %} lint/black{% endif %}
-.DEFAULT_GOAL := help
+.PHONY: help lock twine lint test format up_db wait_for_db run_locally run clean preprod_release
 
-define BROWSER_PYSCRIPT
-import os, webbrowser, sys
 
-from urllib.request import pathname2url
-
-webbrowser.open("file://" + pathname2url(os.path.abspath(sys.argv[1])))
-endef
-export BROWSER_PYSCRIPT
-
-define PRINT_HELP_PYSCRIPT
-import re, sys
-
-for line in sys.stdin:
-	match = re.match(r'^([a-zA-Z_-]+):.*?## (.*)$$', line)
-	if match:
-		target, help = match.groups()
-		print("%-20s %s" % (target, help))
-endef
-export PRINT_HELP_PYSCRIPT
-
-BROWSER := python -c "$$BROWSER_PYSCRIPT"
-
+.DEFAULT: help
 help:
-	@python -c "$$PRINT_HELP_PYSCRIPT" < $(MAKEFILE_LIST)
+	@echo "Usage: make <command>"
+	@echo
+	@echo "Commands:"
+	@echo "make venv"
+	@echo "		Install virtual environment"
+	@echo "make pyenv"
+	@echo "		Install pyenv and virtual environment"
+	@echo "lock	Lock dev virtual environment"
+	@echo "twine	Publish package to the Company PYPI"
+	@echo "test	Test Project"
+	@echo "test_locally	Test Project locally"
+	@echo "format	Run all pre-commit hooks"
+	@echo "up_db	Build and up database container."
+	@echo "wait_for_db	Wait whyle DB is starting up."
+	@echo "run	Build and run server container."
+	@echo "run_server	Run server locally."
+	@echo "run_periodic	Run periodic tasks locally."
+	@echo "clean	Down containers, remove volumes and intermediate containers."
+	@echo "preprod_release	Increments tag number and pushes tagged HEAD to dev and preprod."
 
-clean: clean-build clean-pyc clean-test ## remove all build, test, coverage and Python artifacts
 
-clean-build: ## remove build artifacts
-	rm -fr build/
-	rm -fr dist/
-	rm -fr .eggs/
-	find . -name '*.egg-info' -exec rm -fr {} +
-	find . -name '*.egg' -exec rm -f {} +
+venv:
+	@echo "Install virtual environment"
+	@echo "Usage: make venv"
+	{ \
+	pip install pipenv; \
+	ls | grep Pipfile.lock && pipenv sync -d || pipenv update -d; \
+	}
 
-clean-pyc: ## remove Python file artifacts
-	find . -name '*.pyc' -exec rm -f {} +
-	find . -name '*.pyo' -exec rm -f {} +
-	find . -name '*~' -exec rm -f {} +
-	find . -name '__pycache__' -exec rm -fr {} +
 
-clean-test: ## remove test and coverage artifacts
-	rm -fr .tox/
-	rm -f .coverage
-	rm -fr htmlcov/
-	rm -fr .pytest_cache
+pyenv:
+	@echo "Install pyenv and virtual environment"
+	@echo "Usage: make pyenv"
+	{ \
+	ls -la ~/ | grep .pyenv && echo Pyenv already installed || ((curl https://pyenv.run | bash) && exec $SHELL); \
+	venv=$$(cat .python-version | tr -d '\n'); \
+	python_version=$$(echo $$venv | rev | cut -d'-' -f 1 | rev); \
+	~/.pyenv/bin/pyenv versions | grep $$python_version && echo Python $$python_version already exists || (~/.pyenv/bin/pyenv update && ~/.pyenv/bin/pyenv install $$python_version); \
+	~/.pyenv/bin/pyenv versions | grep $$venv && echo Venv $$venv already exists || (~/.pyenv/bin/pyenv virtualenv $$python_version $$venv); \
+	. ~/.pyenv/versions/$$venv/bin/activate; \
+	pip install pipenv; \
+	ls | grep Pipfile.lock && pipenv sync -d || pipenv update -d; \
+	}
 
-lint/flake8: ## check style with flake8
-	flake8 {{ cookiecutter.project_slug }} tests
+lock:
+	@echo "Lock dev virtual environment"
+	@echo "Usage: make lock"
+	{ \
+    pipenv lock; \
+    chown $$UID:$$GID Pipfile.lock; \
+	}
 
-{%- if cookiecutter.use_black == 'y' %}
-lint/black: ## check style with black
-	black --check {{ cookiecutter.project_slug }} tests
-{%- endif %}
+twine:
+	@echo "Publish package to the Company PYPI"
+	@echo "Usage: make twine"
+	{ \
+    python -m build; \
+    twine upload -r nexus dist/*.tar.gz --config-file .pypirc; \
+    rm dist/*; \
+}
 
-lint: lint/flake8{%- if cookiecutter.use_black == 'y' %} lint/black{%- endif %} ## check style
+test:
+	@echo "Test Project"
+	@echo "Usage: make test"
+	{ \
+  	pytest --dead-fixtures; \
+  	pytest -vv --pdb; \
+  	rm .coverage; \
+	}
 
-test: ## run tests quickly with the default Python
-{%- if cookiecutter.use_pytest == 'y' %}
-	pytest
-{%- else %}
-	python setup.py test
-{%- endif %}
+format:
+	@echo "Run all pre-commit hooks"
+	@echo "Usage: make format"
+	pre-commit run --all-files
 
-test-all: ## run tests on every Python version with tox
-	tox
+up_db:
+	@echo "Build and up database container."
+	@docker compose up --build --remove-orphans -d register-database
+	@echo "Type 'CTRL C' to shut down DB and 'make clean' to down containers, "
+	@echo "remove volumes and intermediate containers."
+	@make wait_for_db
+	alembic upgrade head
+	docker attach register-database
 
-coverage: ## check code coverage quickly with the default Python
-{%- if cookiecutter.use_pytest == 'y' %}
-	coverage run --source {{ cookiecutter.project_slug }} -m pytest
-{%- else %}
-	coverage run --source {{ cookiecutter.project_slug }} setup.py test
-{%- endif %}
-	coverage report -m
-	coverage html
-	$(BROWSER) htmlcov/index.html
+wait_for_db:
+	@echo "Wait whyle DB is starting up."
+	@until docker container exec -it register-database pg_isready; \
+	do \
+		>&2 echo "waiting for Postgres..."; \
+		sleep 5; \
+	done
+	@echo "database has started"
 
-docs: ## generate Sphinx HTML documentation, including API docs
-	rm -f docs/{{ cookiecutter.project_slug }}.rst
-	rm -f docs/modules.rst
-	sphinx-apidoc -o docs/ {{ cookiecutter.project_slug }}
-	$(MAKE) -C docs clean
-	$(MAKE) -C docs html
-	$(BROWSER) docs/_build/html/index.html
+up_containers:
+	@echo "Build, up database and server containers."
+	@docker compose up --build --remove-orphans -d register-database
+	@make wait_for_db
+	@docker compose up --build --remove-orphans register
 
-servedocs: docs ## compile the docs watching for changes
-	watchmedo shell-command -p '*.rst' -c '$(MAKE) -C docs html' -R -D .
+run_server:
+	@echo "Run server locally."
+	@make wait_for_db
+	@export DB_HOST=127.0.0.1; uvicorn app.main:app --reload
 
-release: dist ## package and upload a release
-	twine upload dist/*
+run_app:
+	@echo "Build, up database container and run server locally."
+	@docker compose up --build --remove-orphans -d register-database
+	@make run_server
 
-dist: clean ## builds source and wheel package
-	python setup.py sdist
-	python setup.py bdist_wheel
-	ls -l dist
+run_periodic:
+	@echo "Run periodic tasks locally."
+	python ./app/main.py --periodic_tasks
 
-install: clean ## install the package to the active Python's site-packages
-	python setup.py install
+clean:
+	@echo "Down containers, remove volumes and intermediate containers."
+	@docker compose down --volumes --remove-orphans
+
+test_locally:
+	echo "Test Project locally";\
+	echo "Usage: make test_locally";\
+	export DB_HOST=127.0.0.1;\
+	make test
+
+preprod_release:
+	@echo "Increments tag number and pushes tagged HEAD to dev and preprod."
+	@bash ./release_to_preprod.sh

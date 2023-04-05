@@ -1,0 +1,48 @@
+version: "3"
+
+services:
+  database:
+    env_file: app/config/.env
+    image: keinos/sqlite3:latest
+    container_name: database
+    hostname: database
+    restart: always
+    ports:
+      - "5432:5432"
+    volumes:
+      - db-data:/{{ cookiecutter.repository_name }}/app/repository/database
+    networks:
+      - net
+
+  cli:
+    build: .
+    container_name: cli
+    hostname: cli
+    env_file: app/config/.env
+    ports:
+      - "8080:8080"
+    volumes:
+      - cli-data:/app
+    networks:
+      - net
+
+  server:
+    build: .
+    container_name: server
+    hostname: server
+    env_file: app/config/.env
+    ports:
+      - "8081:8081"
+    volumes:
+      - server-data:/app
+    networks:
+      - net
+
+volumes:
+  db-data:
+  cli-data:
+  server-data:
+
+networks:
+  net:
+    driver: bridge

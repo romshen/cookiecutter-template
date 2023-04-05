@@ -1,0 +1,36 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+Click = "*"
+sqlalchemy = {extras = ["asyncio"], version = "*"}
+pydantic = {extras = ["dotenv"], version = "*"}
+alembic = "*"
+
+[dev-packages]
+# formatting
+black = "*"
+isort = "*"
+pycln = "*"
+# linting
+mypy = "*"
+ruff = "*"
+# testing
+pytest = "*"
+pytest-aiohttp = "*"
+pytest-asyncio = "*"
+pytest-clarity = "*"
+pytest-cov = "*"
+pytest-deadfixtures = "*"
+pytest-mock = "*"
+pytest-sugar = "*"
+requests = "*"
+# pre-commit hooks
+pre-commit = "*"
+# dev
+Sphinx = "*"
+
+[requires]
+python_version = "3.11"
